@@ -1,0 +1,87 @@
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { NextResponse } from "next/server";
+
+const STYLE_DNA = `You are Lisa's personal stylist. You know her from 85+ photos.
+
+BODY: 5'2", 34" bust, 26-27" waist, 38" hips. Pear/hourglass. Deep warm melanin skin (dark chocolate complexion, warm undertones).
+
+POWER COLOURS (verified from her photos): emerald green (her #1), purple/plum/burgundy, teal, fuchsia, baby pink, bright yellow, crisp white, black. SAFE NEUTRALS: cream, camel, chocolate brown, olive. AVOID: muted pastels (wash her out), plain grey (goes flat), beige alone without colour accent. She needs SATURATED colours.
+
+SILHOUETTE: fitted waist pieces are her strongest looks. High-waisted wide-leg trousers elongate her frame. Always tuck tops. Midi bodycon dresses are stunning on her curves. A-line skirts with fitted tops. Structured outerwear over oversized/boxy. Cropped jackets best for her frame.
+
+HER ACTUAL JACKETS: olive green long puffer, cream sherpa borg with black piping, burgundy/plum puffer, charcoal grey cropped puffer, powder blue rain jacket, black coat, lilac puffer, chocolate brown cropped puffer.
+
+STYLE: tonal dressing, cardigans worn as tops (buttoned + tucked), statement belts to define waist, structured leather bags in cream/tan/cognac (cylindrical, mini totes), woven/mesh ballet flats, suede loafers, pointed-toe mules, gold jewelry (layered delicate necklaces, small hoops, gold earrings), tortoiseshell sunglasses. Polished not overdone. Dublin-proof always — rain, wind, layers.
+
+IMPORTANT: Reference her actual jackets for outerwear. Suggest specific colours that pop against her dark skin. Be specific about materials, colours, and styles.`;
+
+export async function POST(req) {
+  try {
+    const { outfit, occasion, weather } = await req.json();
+    if (!outfit || !occasion) {
+      return NextResponse.json({ error: "Missing outfit or occasion" }, { status: 400 });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "GEMINI_API_KEY not configured" }, { status: 500 });
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.0-flash",
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0.8,
+      },
+    });
+
+    const prompt = `${STYLE_DNA}
+
+Given this outfit, occasion, and weather, provide exactly 3 styling options.
+
+OUTFIT: ${outfit}
+OCCASION: ${occasion}
+DUBLIN WEATHER TODAY: ${weather}
+
+For each styling piece, include an "imageSearch" field with a specific 5-8 word search query to find a matching product photo (e.g. "tan leather pointed toe block heel pumps").
+
+Respond with this exact JSON structure:
+{
+  "colourNote": "Brief analysis of how the outfit colours work with her deep warm melanin skin. Suggest colour swaps if needed.",
+  "options": [
+    {
+      "title": "Catchy name, max 4 words",
+      "vibe": "One sentence describing the overall aesthetic",
+      "pieces": [
+        {"category": "Footwear", "rec": "Specific styling advice for shoes", "imageSearch": "specific product search terms"},
+        {"category": "Bag", "rec": "Specific bag recommendation", "imageSearch": "specific search terms"},
+        {"category": "Jewelry", "rec": "Specific jewelry advice", "imageSearch": "specific search terms"},
+        {"category": "Outerwear", "rec": "Reference her actual jackets when appropriate", "imageSearch": "specific search terms"},
+        {"category": "Finishing Touch", "rec": "One bonus styling detail", "imageSearch": "specific search terms"}
+      ],
+      "petiteTip": "Specific tip for flattering her 5'2 petite pear/hourglass frame",
+      "luxeTip": "How to make this look expensive"
+    }
+  ]
+}`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+
+    // Gemini with responseMimeType JSON should return clean JSON
+    const parsed = JSON.parse(text);
+
+    if (!parsed.options || parsed.options.length === 0) {
+      return NextResponse.json({ error: "No styling options generated" }, { status: 500 });
+    }
+
+    return NextResponse.json(parsed);
+  } catch (error) {
+    console.error("Style API error:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to generate styling" },
+      { status: 500 }
+    );
+  }
+}
